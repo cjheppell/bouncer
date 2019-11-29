@@ -3,6 +3,4 @@ kind: TcpService
 metadata:
   name: example-tcpservice
 spec:
-  # Add fields here
-  size: 3
-  port: 8080
+  nodePort: 8080

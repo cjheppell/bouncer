@@ -104,8 +104,8 @@ func (r *ReconcileTcpService) Reconcile(request reconcile.Request) (reconcile.Re
 	isTcpServiceMarkedToBeDeleted := instance.GetDeletionTimestamp() != nil
 	if isTcpServiceMarkedToBeDeleted {
 		if contains(instance.GetFinalizers(), tcpserviceFinalizer) {
-			reqLogger.Info("finalizing tcp service", "tcpservice_port", instance.Spec.Port)
-			if err := r.finalizeTcpService(reqLogger, int32(instance.Spec.Port)); err != nil {
+			reqLogger.Info("finalizing tcp service", "tcpservice_nodePort", instance.Spec.NodePort)
+			if err := r.finalizeTcpService(reqLogger, int32(instance.Spec.NodePort)); err != nil {
 				return reconcile.Result{}, err
 			}
 			instance.SetFinalizers(remove(instance.GetFinalizers(), tcpserviceFinalizer))
@@ -124,7 +124,7 @@ func (r *ReconcileTcpService) Reconcile(request reconcile.Request) (reconcile.Re
 			return reconcile.Result{}, nil
 		}
 
-		err = firewallClient.ExposePort(int32(instance.Spec.Port))
+		err = firewallClient.ExposePort(int32(instance.Spec.NodePort))
 		if err != nil {
 			reqLogger.Error(err, "Error exposing port")
 			return reconcile.Result{}, err
@@ -149,13 +149,13 @@ func (r *ReconcileTcpService) Reconcile(request reconcile.Request) (reconcile.Re
 }
 
 func (r *ReconcileTcpService) addFinalizer(logger logr.Logger, tcpservice *bouncerv1alpha1.TcpService) error {
-	logger.Info("adding Finalizer for tcp service", "tcpservice_port", tcpservice.Spec.Port)
+	logger.Info("adding Finalizer for tcp service", "tcpservice_nodePort", tcpservice.Spec.NodePort)
 	tcpservice.SetFinalizers(append(tcpservice.GetFinalizers(), tcpserviceFinalizer))
 
 	// Update CR
 	err := r.client.Update(context.TODO(), tcpservice)
 	if err != nil {
-		logger.Error(err, "failed to update tcp service with finalizer", "tcpservice_port", tcpservice.Spec.Port)
+		logger.Error(err, "failed to update tcp service with finalizer", "tcpservice_nodePort", tcpservice.Spec.NodePort)
 		return err
 	}
 	return nil
