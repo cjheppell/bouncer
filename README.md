@@ -8,6 +8,8 @@ Inspired by [this StackOverflow question](https://stackoverflow.com/q/58341852/5
 
 NodePort's are a way to do this, but they require public access to the nodes in the cluster for users outside of the cluster to consume them.
 
+As a result, ports in the NodePort range are often not publicly accessible on the Kubernetes nodes. This means that simply exposing a NodePort service is not enough to make these accessible due to firewall restrictions.
+
 ## How does it solve it?
 
 Bouncer will effectively wraps a "NodePort" service, with knowledge of the cloud provider in use, such that the NodePort can be exposed for public consumption without the user needing to configure things such as firewalls, or load balancers, etc.
