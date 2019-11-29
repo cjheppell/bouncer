@@ -7,7 +7,9 @@ import (
 // TcpServiceSpec defines the desired state of TcpService
 // +k8s:openapi-gen=true
 type TcpServiceSpec struct {
-	NodePort int `json:"nodePort"`
+	NodePort int               `json:"nodePort"`
+	Port     int               `json:"port"`
+	Selector map[string]string `json:"selector"`
 }
 
 // TcpServiceStatus defines the observed state of TcpService

@@ -4,3 +4,6 @@ metadata:
   name: example-tcpservice
 spec:
   nodePort: 8080
+  port: 80
+  selector:
+    app: nginx
