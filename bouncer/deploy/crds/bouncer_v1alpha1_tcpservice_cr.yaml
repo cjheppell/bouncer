@@ -1,0 +1,7 @@
+apiVersion: bouncer.cjheppell.github.com/v1alpha1
+kind: TcpService
+metadata:
+  name: example-tcpservice
+spec:
+  # Add fields here
+  size: 3
