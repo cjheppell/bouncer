@@ -8,9 +8,12 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -117,6 +120,41 @@ func (r *ReconcileTcpService) Reconcile(request reconcile.Request) (reconcile.Re
 		return reconcile.Result{}, nil
 	}
 
+	newSvc := r.newServiceForTcpService(instance)
+
+	if err := controllerutil.SetControllerReference(instance, newSvc, r.scheme); err != nil {
+		return reconcile.Result{}, err
+	}
+
+	// Check if this Service already exists
+	foundSvc := &corev1.Service{}
+	err = r.client.Get(context.TODO(), types.NamespacedName{
+		Namespace: instance.GetNamespace(),
+		Name:      instance.GetName(),
+	}, foundSvc)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Need to add the service
+			reqLogger.Info("creating a new Service", "Service.Namespace", newSvc.Namespace, "Service.Name", newSvc.Name)
+			err = r.client.Create(context.TODO(), newSvc)
+			if err != nil {
+				reqLogger.Info("failed to create service, requeuing...", "Service.Namespace", newSvc.Namespace, "Deployment.Name", newSvc.Name)
+				return reconcile.Result{}, err
+			}
+			instance.Status.ServiceCreated = true
+			if err := r.client.Status().Update(context.TODO(), instance); err != nil {
+				return reconcile.Result{}, err
+			}
+
+			// Service created successfully - requeue
+			reqLogger.Info("service successfully created", "Service.Namespace", newSvc.Namespace, "Service.Name", newSvc.Name)
+			return reconcile.Result{}, nil
+		} else {
+			reqLogger.Error(err, "error getting service")
+			return reconcile.Result{}, err
+		}
+	}
+
 	if !instance.Status.Exposed {
 		firewallClient, err := cloudprovider.GetFirewallClient()
 		if err != nil {
@@ -124,6 +162,7 @@ func (r *ReconcileTcpService) Reconcile(request reconcile.Request) (reconcile.Re
 			return reconcile.Result{}, nil
 		}
 
+		reqLogger.Info("Exposing port", "tcpservice_nodeport", instance.Spec.NodePort)
 		err = firewallClient.ExposePort(int32(instance.Spec.NodePort))
 		if err != nil {
 			reqLogger.Error(err, "Error exposing port")
@@ -168,6 +207,28 @@ func (r *ReconcileTcpService) finalizeTcpService(logger logr.Logger, port int32)
 	}
 
 	return firewallClient.UnexposePort(port)
+}
+
+func (r *ReconcileTcpService) newServiceForTcpService(ts *bouncerv1alpha1.TcpService) *corev1.Service {
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      ts.GetName(),
+			Namespace: ts.GetNamespace(),
+			Labels:    ts.GetLabels(),
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: ts.Spec.Selector,
+			Type:     "NodePort",
+			Ports: []corev1.ServicePort{
+				{
+					Name:     "default",
+					Protocol: corev1.ProtocolTCP,
+					Port:     int32(ts.Spec.Port),
+					NodePort: int32(ts.Spec.NodePort),
+				},
+			},
+		},
+	}
 }
 
 func contains(list []string, s string) bool {

@@ -3,7 +3,7 @@ kind: TcpService
 metadata:
   name: example-tcpservice
 spec:
-  nodePort: 8080
+  nodePort: 30080
   port: 80
   selector:
     app: nginx

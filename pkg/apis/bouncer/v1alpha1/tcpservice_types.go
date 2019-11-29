@@ -15,7 +15,8 @@ type TcpServiceSpec struct {
 // TcpServiceStatus defines the observed state of TcpService
 // +k8s:openapi-gen=true
 type TcpServiceStatus struct {
-	Exposed bool `json:"exposed"`
+	Exposed        bool `json:"exposed"`
+	ServiceCreated bool `json:"serviceCreated"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
