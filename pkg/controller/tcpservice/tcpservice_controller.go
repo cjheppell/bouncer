@@ -2,7 +2,10 @@ package tcpservice
 
 import (
 	"context"
+
 	bouncerv1alpha1 "github.com/cjheppell/bouncer/pkg/apis/bouncer/v1alpha1"
+	"github.com/cjheppell/bouncer/pkg/cloudprovider"
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -13,7 +16,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	"github.com/cjheppell/bouncer/pkg/cloudprovider"
 )
 
 var log = logf.Log.WithName("controller_tcpservice")
@@ -72,6 +74,8 @@ type ReconcileTcpService struct {
 	scheme *runtime.Scheme
 }
 
+const tcpserviceFinalizer = "finalizer.tcpservice.bouncer.cjheppell.github.com"
+
 // Reconcile reads that state of the cluster for a TcpService object and makes changes based on the state read
 // and what is in the TcpService.Spec
 // TODO(user): Modify this Reconcile function to implement your Controller logic.  This example creates
@@ -97,13 +101,89 @@ func (r *ReconcileTcpService) Reconcile(request reconcile.Request) (reconcile.Re
 		return reconcile.Result{}, err
 	}
 
-	firewallClient, err := cloudprovider.GetFirewallClient()
-	if err != nil {
-		reqLogger.Error(err, "Error constructing firewall client")
+	isTcpServiceMarkedToBeDeleted := instance.GetDeletionTimestamp() != nil
+	if isTcpServiceMarkedToBeDeleted {
+		if contains(instance.GetFinalizers(), tcpserviceFinalizer) {
+			reqLogger.Info("finalizing tcp service", "tcpservice_port", instance.Spec.Port)
+			if err := r.finalizeTcpService(reqLogger, int32(instance.Spec.Port)); err != nil {
+				return reconcile.Result{}, err
+			}
+			instance.SetFinalizers(remove(instance.GetFinalizers(), tcpserviceFinalizer))
+			err := r.client.Update(context.TODO(), instance)
+			if err != nil {
+				return reconcile.Result{}, err
+			}
+		}
 		return reconcile.Result{}, nil
 	}
 
-	firewallClient.ExposePort(int32(instance.Spec.Port))
+	if !instance.Status.Exposed {
+		firewallClient, err := cloudprovider.GetFirewallClient()
+		if err != nil {
+			reqLogger.Error(err, "Error constructing firewall client")
+			return reconcile.Result{}, nil
+		}
+
+		err = firewallClient.ExposePort(int32(instance.Spec.Port))
+		if err != nil {
+			reqLogger.Error(err, "Error exposing port")
+			return reconcile.Result{}, err
+		}
+
+		instance.Status.Exposed = true
+		err = r.client.Status().Update(context.TODO(), instance)
+		if err != nil {
+			reqLogger.Error(err, "failed to update the status of the tcp service")
+			return reconcile.Result{Requeue: false}, nil
+		}
+	}
+
+	if !contains(instance.GetFinalizers(), tcpserviceFinalizer) {
+		if err := r.addFinalizer(reqLogger, instance); err != nil {
+			reqLogger.Error(err, "Failed to add a finalizer to the tcp service")
+			return reconcile.Result{}, err
+		}
+	}
 
 	return reconcile.Result{}, nil
+}
+
+func (r *ReconcileTcpService) addFinalizer(logger logr.Logger, tcpservice *bouncerv1alpha1.TcpService) error {
+	logger.Info("adding Finalizer for tcp service", "tcpservice_port", tcpservice.Spec.Port)
+	tcpservice.SetFinalizers(append(tcpservice.GetFinalizers(), tcpserviceFinalizer))
+
+	// Update CR
+	err := r.client.Update(context.TODO(), tcpservice)
+	if err != nil {
+		logger.Error(err, "failed to update tcp service with finalizer", "tcpservice_port", tcpservice.Spec.Port)
+		return err
+	}
+	return nil
+}
+
+func (r *ReconcileTcpService) finalizeTcpService(logger logr.Logger, port int32) error {
+	firewallClient, err := cloudprovider.GetFirewallClient()
+	if err != nil {
+		return err
+	}
+
+	return firewallClient.UnexposePort(port)
+}
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+func remove(list []string, s string) []string {
+	for i, v := range list {
+		if v == s {
+			list = append(list[:i], list[i+1:]...)
+		}
+	}
+	return list
 }
